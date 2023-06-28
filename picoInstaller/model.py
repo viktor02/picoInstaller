@@ -32,6 +32,8 @@ class InstallThread(QThread):
             self.log("Installation complete.")
         except AdbError as e:
             self.log(f"Error: {e}")
+        except NotImplementedError as e:
+            self.log(f"Error: {e}")
 
 
 class AdbModel:

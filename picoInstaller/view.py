@@ -42,7 +42,6 @@ class Ui(QtWidgets.QMainWindow):
 
     def handle_message(self, message):
         self.labelDrag.setText(message)
-        self.logWidget.addItem(message)
         self.statusBar.showMessage(message)
 
     def open_dialog(self):
@@ -94,8 +93,20 @@ class Ui(QtWidgets.QMainWindow):
         self.install_thread.start()
 
 
-os.system("adb devices") # start adb daemon
+if __name__ == "__main__":
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+    logging.info("Starting app")
 
-app = QtWidgets.QApplication(sys.argv)
-window = Ui()
-app.exec_()
+    logging.info("Starting adb daemon")
+    os.system("adb start-server")  # start adb daemon
+
+    app = QtWidgets.QApplication(sys.argv)
+    window = Ui()
+    app.exec_()
+    logging.info("Closing app")
+
+    logging.info("Stopping adb daemon")
+    os.system("adb kill-server")  # stop adb daemon
+
+    logging.info("Exiting")
+    sys.exit(0)
