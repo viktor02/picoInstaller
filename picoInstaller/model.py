@@ -23,10 +23,22 @@ class InstallThread(QThread):
         self.log("Installer thread started...")
 
         try:
-            if self.file_path.endswith(".apk"):
+            if self.file_path.endswith(".apk"):  # User dropped apk file, install it
+                self.log("Installing apk...")
                 self.adb.install_apk(self.file_path)
-            elif self.file_path.endswith(".zip"):
-                self.adb.install_zip(self.file_path)
+            elif self.file_path.endswith(".zip"):  # User dropped zip file, unpack and install it
+                self.log("Unpacking zip and installing...")
+                self.adb.unpack_zip(self.file_path)
+            elif pathlib.Path(self.file_path).is_dir():  # User dropped folder, check for apk or for obb folder
+                self.log("Looking for apk in folder...")
+                # if folder with obb cache
+                if any(pathlib.Path(self.file_path).glob("**/*.obb")):
+                    self.log("Installing folder with obb cache...")
+                    self.adb.install_folder(self.file_path)
+                else:  # install only apk
+                    self.log("Installing only apk...")
+                    apk_file = next(pathlib.Path(self.file_path).glob("*.apk")).resolve()
+                    self.adb.install_apk(str(apk_file))
             else:
                 self.log("Unknown file type")
             self.log("Installation complete.")
@@ -49,25 +61,30 @@ class AdbModel:
     def install_apk(self, apk_path):
         self.device.install(apk_path, nolaunch=True)
 
-    def install_zip(self, zip_path):
+    def install_folder(self, folder_path):
+        folder_path = pathlib.Path(folder_path)
+        apk_file = next(folder_path.glob("*.apk")).resolve()
+
+        self.logger.info(f"Installing {apk_file}")
+        self.device.install(str(apk_file), nolaunch=True)
+
+        obb_files = folder_path.glob('**/*.obb')
+        self.logger.info(f"Installing obb files")
+        for file in obb_files:
+            relative_path = file.relative_to(folder_path)
+            new_dir = f"/sdcard/Android/obb/{relative_path.parent}"
+            self.device.shell(f"mkdir -p {new_dir}")
+            self.device.push(str(file), f"{new_dir}/{file.name}")
+            self.logger.info(f"Installed {file}")
+
+    def unpack_zip(self, zip_path):
         with tempfile.TemporaryDirectory("picoInstaller") as temp_folder:
             temp_folder = pathlib.Path(temp_folder)
 
             self.logger.info("Unpacking archive to temp folder")
             shutil.unpack_archive(zip_path, temp_folder)
-            apk_file = next(temp_folder.glob("*.apk")).resolve()
 
-            self.logger.info(f"Installing {apk_file}")
-            self.device.install(str(apk_file), nolaunch=True)
-
-            obb_files = temp_folder.glob('**/*.obb')
-            self.logger.info(f"Installing obb files")
-            for file in obb_files:
-                relative_path = file.relative_to(temp_folder)
-                new_dir = f"/sdcard/Android/obb/{relative_path.parent}"
-                self.device.shell(f"mkdir -p {new_dir}")
-                self.device.push(str(file), f"{new_dir}/{file.name}")
-                self.logger.info(f"Installed {file}")
+            self.install_folder(temp_folder)
 
     def uninstall_app(self, package_name):
         self.device.uninstall(package_name)

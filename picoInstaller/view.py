@@ -1,4 +1,5 @@
 import os
+import pathlib
 import sys
 import logging
 from PyQt5 import QtWidgets, uic
@@ -70,6 +71,10 @@ class Ui(QtWidgets.QMainWindow):
         if file_path.endswith((".apk", ".zip")):
             suffix = "APK file" if file_path.endswith(".apk") else "ZIP archive"
             self.labelDrag.setText(f"Found {suffix}! Click the button below to install")
+            self.button.setEnabled(True)
+            self.file_path = file_path
+        elif pathlib.Path(file_path).is_dir():
+            self.labelDrag.setText("Found directory! Click the button below to install")
             self.button.setEnabled(True)
             self.file_path = file_path
         else:
