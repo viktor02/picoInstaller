@@ -1,0 +1,7 @@
+venv/
+.idea/
+build/
+*egg-info*
+*/__pycache__/*
+*.jar
+*.apk*
