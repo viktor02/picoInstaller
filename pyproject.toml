@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "picoInstaller"
+version = "0.1.0"
+authors = [
+    {name = "Viktor Karpov", email = "v@vitka-k.ru"},
+]
+description = "picoInstaller is a simple adb package installer"
+readme = "README.md"
+requires-python = ">=3.6"
+keywords = ["pico", "vr", "adb"]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "PyQt5",
+    'adbutils',
+]
+
+[tool.setuptools]
+packages = ["picoInstaller"]
+
+[metadata]
+content-type = "text/markdown"
+
+[project.scripts]
+picoInstaller = "picoInstaller.view:main"

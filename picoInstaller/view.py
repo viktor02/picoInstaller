@@ -6,8 +6,8 @@ from PyQt5 import QtWidgets, uic
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QMessageBox
 
-from model import InstallThread, AdbModel
-from controller import check_path
+from picoInstaller.model import InstallThread, AdbModel
+from picoInstaller.controller import check_path
 
 
 class Ui(QtWidgets.QMainWindow):
@@ -16,7 +16,9 @@ class Ui(QtWidgets.QMainWindow):
         self.install_thread = None
         self.file_path = None
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
-        uic.loadUi('main_window.ui', self)
+
+        ui_path = pathlib.Path(__file__).parent.absolute() / 'main_window.ui'
+        uic.loadUi(ui_path,  self, 'picoInstaller')
 
         self.statusBar = self.findChild(QtWidgets.QStatusBar, 'statusbar')
         self.logWidget = self.findChild(QtWidgets.QListWidget, 'listWidget')
@@ -33,7 +35,6 @@ class Ui(QtWidgets.QMainWindow):
         self.list_packages_button.clicked.connect(self.on_delete_button)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         self.shell_button.clicked.connect(self.on_send_command)
-
 
         try:
             self.adbmodel = AdbModel()
@@ -98,7 +99,7 @@ class Ui(QtWidgets.QMainWindow):
         self.install_thread.start()
 
 
-if __name__ == "__main__":
+def main():
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
     logging.info("Starting app")
 
@@ -115,3 +116,7 @@ if __name__ == "__main__":
 
     logging.info("Exiting")
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
