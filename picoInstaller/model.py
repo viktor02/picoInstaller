@@ -1,90 +1,66 @@
 import logging
 import pathlib
-import tempfile
+import shutil
+import subprocess
+from random import randint
+import urllib.request
+import xml.etree.ElementTree as ET
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from adbutils import adb, AdbError
-import shutil
 
 
-class InstallThread(QThread):
-    message = pyqtSignal(str)
+def find_apk_obb(folder: pathlib.Path) -> [pathlib.Path, pathlib.Path]:
+    obb_folder = None
+    apk_file = None
 
-    def __init__(self, installer_args):
-        super().__init__()
-        self.file_path = installer_args
+    if any(folder.glob("**/*.obb")):
+        obb_folder = next(folder.glob("**/*.obb")).parent
+    apk_file = next(folder.glob("*.apk")).resolve()
 
-        self.adb = AdbModel()
-
-    def log(self, message):
-        self.message.emit(message)
-
-    def run(self):
-        self.log("Installer thread started...")
-
-        try:
-            if self.file_path.endswith(".apk"):  # User dropped apk file, install it
-                self.log("Installing apk...")
-                self.adb.install_apk(self.file_path)
-            elif self.file_path.endswith(".zip"):  # User dropped zip file, unpack and install it
-                self.log("Unpacking zip and installing...")
-                self.adb.unpack_zip(self.file_path)
-            elif pathlib.Path(self.file_path).is_dir():  # User dropped folder, check for apk or for obb folder
-                self.log("Looking for apk in folder...")
-                # if folder with obb cache
-                if any(pathlib.Path(self.file_path).glob("**/*.obb")):
-                    self.log("Installing folder with obb cache...")
-                    self.adb.install_folder(self.file_path)
-                else:  # install only apk
-                    self.log("Installing only apk...")
-                    apk_file = next(pathlib.Path(self.file_path).glob("*.apk")).resolve()
-                    self.adb.install_apk(str(apk_file))
-            else:
-                self.log("Unknown file type")
-            self.log("Installation complete.")
-        except AdbError as e:
-            self.log(f"Error: {e}")
-        except NotImplementedError as e:
-            self.log(f"Error: {e}")
+    return apk_file, obb_folder
 
 
 class AdbModel:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.device = self.get_device()
-        self.cwd = pathlib.Path("/")
+        self.cwd = pathlib.Path(".")
 
     def get_device(self):
         self.device = adb.device()
         return self.device
 
     def install_apk(self, apk_path):
-        self.device.install(apk_path, nolaunch=True)
+        self.device.install(str(apk_path), nolaunch=True)
 
-    def install_folder(self, folder_path):
-        folder_path = pathlib.Path(folder_path)
-        apk_file = next(folder_path.glob("*.apk")).resolve()
-
+    def install_folder(self, obb_folder: pathlib.Path, apk_file: pathlib.Path):
         self.logger.info(f"Installing {apk_file}")
         self.device.install(str(apk_file), nolaunch=True)
 
-        obb_files = folder_path.glob('**/*.obb')
+        obb_files = obb_folder.parent.glob('**/*.obb')
+        obb_files = [*obb_files]
         self.logger.info(f"Installing obb files")
         for file in obb_files:
-            relative_path = file.relative_to(folder_path)
-            new_dir = f"/sdcard/Android/obb/{relative_path.parent}"
+            #relative_path = file.relative_to(obb_folder)
+            new_dir = f"/sdcard/Android/obb/{file.parent.name}"
             self.device.shell(f"mkdir -p {new_dir}")
             self.device.push(str(file), f"{new_dir}/{file.name}")
             self.logger.info(f"Installed {file}")
 
-    def unpack_zip(self, zip_path):
-        with tempfile.TemporaryDirectory("picoInstaller") as temp_folder:
-            temp_folder = pathlib.Path(temp_folder)
+    def unpack_zip(self, zip_path: pathlib.Path, target_dir: pathlib.Path):
+        self.logger.info(f"Unpacking {zip_path}")
+        target_dir.mkdir(exist_ok=True)
 
-            self.logger.info("Unpacking archive to temp folder")
-            shutil.unpack_archive(zip_path, temp_folder)
+        shutil.unpack_archive(zip_path, target_dir)
 
-            self.install_folder(temp_folder)
+        self.logger.info(f"Unpacked {zip_path}")
+
+        apk_file, obb_folder = find_apk_obb(target_dir)
+        self.logger.info(f"Found obb folder: {obb_folder}")
+        self.logger.info(f"Found apk file: {apk_file}")
+
+        return obb_folder, apk_file
 
     def uninstall_app(self, package_name):
         self.device.uninstall(package_name)
@@ -97,3 +73,180 @@ class AdbModel:
 
     def run_command(self, command):
         return self.device.shell(command)
+
+
+class InstallThread(QThread):
+    message = pyqtSignal(str)
+
+    def __init__(self, file_path: pathlib.Path, is_rename_package: bool = False):
+        super().__init__()
+        self.file_path = file_path
+        self.is_rename_package = is_rename_package
+
+    def run(self):
+        self.log("Installer thread started...")
+        try:
+            model = AdbModel()
+            if self.file_path.suffix == ".apk":
+                self.log("Installing APK...")
+                if self.is_rename_package:
+                    self.log("Renaming package...")
+                    renamer = Renamer(self.file_path)  # simple apk
+                    _, new_apk = renamer.rename_package()
+                    model.install_apk(new_apk)
+                else:
+                    model.install_apk(self.file_path)
+            elif self.file_path.suffix == ".zip":
+                self.log("Unpacking ZIP...")
+                temp_dir = pathlib.Path("PicoInstallerTemp")
+                obb_folder, apk_file = model.unpack_zip(self.file_path, temp_dir)
+
+                if not apk_file:
+                    self.log("Error: No APK file found")
+                    return
+
+                if self.is_rename_package:
+                    self.log("Renaming package...")
+                    renamer = Renamer(apk_file, obb_folder)
+                    obb_folder, new_apk = renamer.rename_package()
+
+                    self.log("Installing package...")
+                    model.install_folder(obb_folder, new_apk)
+
+                    self.log("Removing temporary directory...")
+                    shutil.rmtree(temp_dir)
+                else:
+                    model.install_folder(obb_folder, apk_file)
+
+                    self.log("Removing temporary directory...")
+                    shutil.rmtree(temp_dir)
+            elif self.file_path.is_dir():
+                self.log("Installing folder...")
+
+                apk_file, obb_folder = find_apk_obb(self.file_path)
+
+                if not apk_file:
+                    self.log("Error: No APK file found")
+                    return
+
+                if self.is_rename_package:
+                    self.log("Renaming package...")
+                    renamer = Renamer(apk_file, obb_folder)
+                    obb_folder, apk_file = renamer.rename_package()
+
+                    self.log("Installing package...")
+                    model.install_folder(obb_folder, apk_file)
+                else:
+                    model.install_folder(obb_folder, apk_file)
+            else:
+                self.log("Unknown file type")
+                return
+            self.log("Installing complete")
+        except AdbError as e:
+            self.log(f"Error: {e}")
+        except NotImplementedError as e:
+            self.log(f"Error: {e}")
+
+    def log(self, message):
+        self.message.emit(message)
+
+
+class Renamer:
+    def __init__(self, apk_path: pathlib.Path, obb_folder: pathlib.Path = None):
+        self.apk_path = apk_path  # APK file
+        self.obb_folder = obb_folder  # Folder with obb files
+        self.temp_dir = pathlib.Path("PicoInstallerTempRenamer")  # Temporary directory for renaming APK file
+        self.logger = logging.getLogger(__name__)
+        assert self.java_is_installed(), "Java is not installed. Please install Java and try again."
+
+    @staticmethod
+    def java_is_installed():
+        try:
+            # Use the 'java -version' command to check if Java is installed
+            subprocess.run(['java', '-version'], capture_output=True, check=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def download_apktool(self) -> pathlib.Path:
+        url = "https://github.com/iBotPeaches/Apktool/releases/download/v2.7.0/apktool_2.7.0.jar"
+        self.temp_dir.mkdir(exist_ok=True)
+        path = pathlib.Path(self.temp_dir.parent, "apktool.jar")
+        if not path.exists():
+            urllib.request.urlretrieve(url, path)
+        return path
+
+    def download_apksigner(self) -> pathlib.Path:
+        url = "https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar"
+        self.temp_dir.mkdir(exist_ok=True)
+        path = pathlib.Path(self.temp_dir.parent, "apksigner.jar")
+        if not path.exists():
+            urllib.request.urlretrieve(url, path)
+        return path
+
+    @staticmethod
+    def replace_package_name(android_manifest_path):
+        # Parse the XML file
+        tree = ET.parse(android_manifest_path)
+        root = tree.getroot()
+
+        # Get 'manifest' element which has 'package' attribute
+        manifest = root
+
+        # Replace package name
+        old_package_name = manifest.attrib['package']
+
+        random = randint(0, 999999)
+        new_package_name = f"com.r{random}.app"
+
+        with open(android_manifest_path, "r+") as f:
+            content = f.read()
+            content = content.replace(old_package_name, new_package_name)
+            f.seek(0)
+            f.write(content)
+            f.truncate()
+
+        return new_package_name
+
+    def rename_package(self) -> [str, str]:
+        """
+        Rename package name in APK and OBB folder
+        """
+        # Download APKTool
+        apktool_path = self.download_apktool()
+        # Download APKSigner
+        apksigner_path = self.download_apksigner()
+
+        # Extract APK
+        subprocess.run(
+            ['java', '-jar', str(apktool_path), 'd', '-f', '-o', str(self.temp_dir),
+             str(self.apk_path)],
+            check=True)
+
+        new_package_name = ""
+        for manifest in self.temp_dir.glob('AndroidManifest.xml'):
+            new_package_name = self.replace_package_name(manifest)
+
+        # Rebuild APK
+        apk_path = pathlib.Path("renamed_app.apk").resolve()
+        subprocess.run(['java', '-jar', str(apktool_path), 'b', '-o', str(apk_path), str(self.temp_dir)],
+                       check=True)
+
+        # Sign APK
+        subprocess.run(['java', '-jar', str(apksigner_path), '-a', str(apk_path), '--overwrite'],
+                       check=True)
+
+        # Clean up temporary directory
+        shutil.rmtree(self.temp_dir)
+
+        if self.obb_folder:
+            # rename obb files
+            for file in self.obb_folder.glob('*.obb'):
+                old_package_name = self.obb_folder.name
+                new_filename = file.name.replace(old_package_name, new_package_name)
+                file.rename(file.parent.resolve() / new_filename)
+            # rename dir
+            self.obb_folder.rename(self.obb_folder.parent.resolve() / new_package_name)
+            return self.obb_folder, apk_path
+        else:
+            return new_package_name, apk_path

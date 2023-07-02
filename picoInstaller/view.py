@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QMessageBox
 
 from model import InstallThread, AdbModel
+from controller import check_path
 
 
 class Ui(QtWidgets.QMainWindow):
@@ -26,11 +27,13 @@ class Ui(QtWidgets.QMainWindow):
         self.shell_button = self.findChild(QtWidgets.QPushButton, 'SendCommandButton')
         self.shell_input = self.findChild(QtWidgets.QLineEdit, 'ShellInput')
         self.shell_output = self.findChild(QtWidgets.QPlainTextEdit, 'ShellOutput')
+        self.is_rename_package = self.findChild(QtWidgets.QCheckBox, 'checkBoxRenamePackage')
 
         self.button.clicked.connect(self.start_installer_thread)
         self.list_packages_button.clicked.connect(self.on_delete_button)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         self.shell_button.clicked.connect(self.on_send_command)
+
 
         try:
             self.adbmodel = AdbModel()
@@ -67,18 +70,15 @@ class Ui(QtWidgets.QMainWindow):
         output = self.adbmodel.run_command(command)
         self.shell_output.appendPlainText(output)
 
-    def check_file(self, file_path):
-        if file_path.endswith((".apk", ".zip")):
-            suffix = "APK file" if file_path.endswith(".apk") else "ZIP archive"
-            self.labelDrag.setText(f"Found {suffix}! Click the button below to install")
-            self.button.setEnabled(True)
-            self.file_path = file_path
-        elif pathlib.Path(file_path).is_dir():
-            self.labelDrag.setText("Found directory! Click the button below to install")
+    def check_file(self, file_path: str):
+        file_path = pathlib.Path(file_path)
+
+        result, description = check_path(file_path)
+        self.labelDrag.setText(description)
+        if result:
             self.button.setEnabled(True)
             self.file_path = file_path
         else:
-            self.labelDrag.setText("Unknown file type!")
             self.button.setEnabled(False)
 
     def dragEnterEvent(self, event):
@@ -92,7 +92,7 @@ class Ui(QtWidgets.QMainWindow):
         self.check_file(file_path)
 
     def start_installer_thread(self):
-        self.install_thread = InstallThread(self.file_path)
+        self.install_thread = InstallThread(self.file_path, self.is_rename_package.isChecked())
         self.install_thread.message.connect(self.handle_message)
         self.button.setEnabled(False)
         self.install_thread.start()

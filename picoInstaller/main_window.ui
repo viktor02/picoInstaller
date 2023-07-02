@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>652</width>
-    <height>583</height>
+    <width>709</width>
+    <height>533</height>
    </rect>
   </property>
   <property name="acceptDrops">
@@ -56,6 +56,13 @@
               </property>
               <property name="alignment">
                <set>Qt::AlignCenter</set>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="checkBoxRenamePackage">
+              <property name="text">
+               <string>Rename package?</string>
               </property>
              </widget>
             </item>
@@ -136,7 +143,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>652</width>
+     <width>709</width>
      <height>21</height>
     </rect>
    </property>
