@@ -116,8 +116,10 @@ class InstallThread(QThread):
         if self.is_rename_package:
             self.log("Renaming package...")
             new_apk = self._rename_package(self.file_path)
+            self.log("Installing package...")
             model.install_apk(new_apk)
         else:
+            self.log("Installing package...")
             model.install_apk(self.file_path)
 
     def _handle_zip(self, model):
@@ -131,8 +133,10 @@ class InstallThread(QThread):
         if self.is_rename_package:
             self.log("Renaming package...")
             new_apk = self._rename_package(apk_file, obb_folder)
+            self.log("Installing folder...")
             model.install_folder(obb_folder, new_apk)
         else:
+            self.log("Installing folder...")
             model.install_folder(obb_folder, apk_file)
 
         self.log("Removing temporary directory...")
@@ -180,7 +184,7 @@ class Renamer:
     def java_is_installed():
         try:
             # Use the 'java -version' command to check if Java is installed
-            subprocess.run(['java', '-version'], capture_output=True, check=True)
+            subprocess.run(['java', '-version'], capture_output=True, shell=True, check=True)
             return True
         except subprocess.CalledProcessError:
             return False
@@ -257,11 +261,11 @@ class Renamer:
         # Rebuild APK
         apk_path = pathlib.Path("renamed_app.apk").resolve()
         subprocess.run(['java', '-jar', str(apktool_path), 'b', '-o', str(apk_path), str(self.temp_dir)],
-                       check=True)
+                       check=True, shell=True)
 
         # Sign APK
         subprocess.run(['java', '-jar', str(apksigner_path), '-a', str(apk_path), '--overwrite'],
-                       check=True)
+                       check=True, shell=True)
 
         # Clean up temporary directory
         shutil.rmtree(self.temp_dir)
