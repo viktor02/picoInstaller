@@ -2,7 +2,7 @@ import os
 import pathlib
 import sys
 import logging
-from PyQt5 import QtWidgets, uic
+from PyQt5 import QtWidgets, uic, QtGui
 from PyQt5.QtWidgets import QFileDialog
 from PyQt5.QtWidgets import QMessageBox
 
@@ -46,6 +46,11 @@ class Ui(QtWidgets.QMainWindow):
             sys.exit(1)
 
     def handle_message(self, message):
+        """
+        Handle message from thread
+        :param message: message to display
+        :return: None
+        """
         self.labelDrag.setText(message)
         self.statusBar.showMessage(message)
 
@@ -55,15 +60,19 @@ class Ui(QtWidgets.QMainWindow):
             self.check_file(file_path)
 
     def on_tab_changed(self, index):
+        """
+        Handle switching to package tab
+        """
         if index == 1:
             self.list_packages.clear()
             self.list_packages.addItems(self.adbmodel.list_packages())
 
     def on_delete_button(self):
-        package = self.list_packages.currentItem().text()
-        self.adbmodel.uninstall_app(package)
-        self.list_packages.clear()
-        self.list_packages.addItems(self.adbmodel.list_packages())
+        package = self.list_packages.currentItem()
+        if package:
+            self.adbmodel.uninstall_app(package.text())
+            self.list_packages.clear()
+            self.list_packages.addItems(self.adbmodel.list_packages())
 
     def on_send_command(self):
         self.shell_output.clear()

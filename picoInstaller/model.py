@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from random import randint
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -42,7 +43,7 @@ class AdbModel:
         obb_files = [*obb_files]
         self.logger.info(f"Installing obb files")
         for file in obb_files:
-            #relative_path = file.relative_to(obb_folder)
+            # relative_path = file.relative_to(obb_folder)
             new_dir = f"/sdcard/Android/obb/{file.parent.name}"
             self.device.shell(f"mkdir -p {new_dir}")
             self.device.push(str(file), f"{new_dir}/{file.name}")
@@ -82,70 +83,86 @@ class InstallThread(QThread):
         super().__init__()
         self.file_path = file_path
         self.is_rename_package = is_rename_package
+        self.temp_dir = pathlib.Path("PicoInstallerTemp")
 
     def run(self):
         self.log("Installer thread started...")
+        model = AdbModel()
+
         try:
-            model = AdbModel()
             if self.file_path.suffix == ".apk":
-                self.log("Installing APK...")
-                if self.is_rename_package:
-                    self.log("Renaming package...")
-                    renamer = Renamer(self.file_path)  # simple apk
-                    _, new_apk = renamer.rename_package()
-                    model.install_apk(new_apk)
-                else:
-                    model.install_apk(self.file_path)
+                self._handle_apk(model)
+
             elif self.file_path.suffix == ".zip":
-                self.log("Unpacking ZIP...")
-                temp_dir = pathlib.Path("PicoInstallerTemp")
-                obb_folder, apk_file = model.unpack_zip(self.file_path, temp_dir)
+                self._handle_zip(model)
 
-                if not apk_file:
-                    self.log("Error: No APK file found")
-                    return
-
-                if self.is_rename_package:
-                    self.log("Renaming package...")
-                    renamer = Renamer(apk_file, obb_folder)
-                    obb_folder, new_apk = renamer.rename_package()
-
-                    self.log("Installing package...")
-                    model.install_folder(obb_folder, new_apk)
-
-                    self.log("Removing temporary directory...")
-                    shutil.rmtree(temp_dir)
-                else:
-                    model.install_folder(obb_folder, apk_file)
-
-                    self.log("Removing temporary directory...")
-                    shutil.rmtree(temp_dir)
             elif self.file_path.is_dir():
-                self.log("Installing folder...")
+                self._handle_dir(model)
 
-                apk_file, obb_folder = find_apk_obb(self.file_path)
-
-                if not apk_file:
-                    self.log("Error: No APK file found")
-                    return
-
-                if self.is_rename_package:
-                    self.log("Renaming package...")
-                    renamer = Renamer(apk_file, obb_folder)
-                    obb_folder, apk_file = renamer.rename_package()
-
-                    self.log("Installing package...")
-                    model.install_folder(obb_folder, apk_file)
-                else:
-                    model.install_folder(obb_folder, apk_file)
             else:
                 self.log("Unknown file type")
                 return
-            self.log("Installing complete")
+
+            self._cleanup()
+
         except AdbError as e:
             self.log(f"Error: {e}")
+
         except NotImplementedError as e:
             self.log(f"Error: {e}")
+
+    def _handle_apk(self, model):
+        self.log("Installing APK...")
+        if self.is_rename_package:
+            self.log("Renaming package...")
+            new_apk = self._rename_package(self.file_path)
+            model.install_apk(new_apk)
+        else:
+            model.install_apk(self.file_path)
+
+    def _handle_zip(self, model):
+        self.log("Unpacking ZIP...")
+        obb_folder, apk_file = model.unpack_zip(self.file_path, self.temp_dir)
+
+        if not apk_file:
+            self.log("Error: No APK file found")
+            return
+
+        if self.is_rename_package:
+            self.log("Renaming package...")
+            new_apk = self._rename_package(apk_file, obb_folder)
+            model.install_folder(obb_folder, new_apk)
+        else:
+            model.install_folder(obb_folder, apk_file)
+
+        self.log("Removing temporary directory...")
+        shutil.rmtree(self.temp_dir)
+
+    def _handle_dir(self, model):
+        self.log("Installing folder...")
+        apk_file, obb_folder = find_apk_obb(self.file_path)
+
+        if not apk_file:
+            self.log("Error: No APK file found")
+            return
+
+        if self.is_rename_package:
+            self.log("Renaming package...")
+            new_apk = self._rename_package(apk_file, obb_folder)
+            model.install_folder(obb_folder, new_apk)
+        else:
+            model.install_folder(obb_folder, apk_file)
+
+    def _cleanup(self):
+        self.log("Cleaning files")
+        pathlib.Path("renamed_app.apk").unlink()
+        self.log("Installing complete")
+
+    @staticmethod
+    def _rename_package(apk_file, obb_folder=None):
+        renamer = Renamer(apk_file, obb_folder)
+        _, new_apk = renamer.rename_package()
+        return new_apk
 
     def log(self, message):
         self.message.emit(message)
@@ -173,7 +190,10 @@ class Renamer:
         self.temp_dir.mkdir(exist_ok=True)
         path = pathlib.Path(self.temp_dir.parent, "apktool.jar")
         if not path.exists():
-            urllib.request.urlretrieve(url, path)
+            try:
+                urllib.request.urlretrieve(url, path)
+            except urllib.error.URLError as e:
+                self.logger.error(f"Error occurred when downloading apktool: {e}")
         return path
 
     def download_apksigner(self) -> pathlib.Path:
@@ -181,7 +201,10 @@ class Renamer:
         self.temp_dir.mkdir(exist_ok=True)
         path = pathlib.Path(self.temp_dir.parent, "apksigner.jar")
         if not path.exists():
-            urllib.request.urlretrieve(url, path)
+            try:
+                urllib.request.urlretrieve(url, path)
+            except urllib.error.URLError as e:
+                self.logger.error(f"Error occurred when downloading apksigner: {e}")
         return path
 
     @staticmethod
@@ -197,7 +220,11 @@ class Renamer:
         old_package_name = manifest.attrib['package']
 
         random = randint(0, 999999)
-        new_package_name = f"com.r{random}.app"
+        try:
+            app = old_package_name.split('.')[-1]
+            new_package_name = f"com.r{random}.{app}"
+        except IndexError:
+            new_package_name = f"com.r{random}"
 
         with open(android_manifest_path, "r+") as f:
             content = f.read()
