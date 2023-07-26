@@ -43,6 +43,7 @@ class Ui(QtWidgets.QMainWindow):
             self.show()
         except RuntimeError as e:
             QMessageBox.warning(self, "Error", str(e))
+            os.system("adb kill-server")
             sys.exit(1)
 
     def handle_message(self, message):

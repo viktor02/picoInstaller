@@ -159,7 +159,7 @@ class InstallThread(QThread):
 
     def _cleanup(self):
         self.log("Cleaning files")
-        pathlib.Path("renamed_app.apk").unlink()
+        pathlib.Path("renamed_app.apk").unlink(missing_ok=True)
         self.log("Installing complete")
 
     @staticmethod
