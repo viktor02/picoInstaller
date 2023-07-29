@@ -7,6 +7,8 @@ import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
 
+from config import MyConfigParser
+
 from PyQt5.QtCore import QThread, pyqtSignal
 from adbutils import adb, AdbError
 
@@ -177,14 +179,16 @@ class Renamer:
         self.apk_path = apk_path  # APK file
         self.obb_folder = obb_folder  # Folder with obb files
         self.temp_dir = pathlib.Path("PicoInstallerTempRenamer")  # Temporary directory for renaming APK file
+        self.key_config = MyConfigParser("config.ini")  # Config for keytool
         self.logger = logging.getLogger(__name__)
+
         assert self.java_is_installed(), "Java is not installed. Please install Java and try again."
 
     @staticmethod
     def java_is_installed():
         try:
             # Use the 'java -version' command to check if Java is installed
-            subprocess.run(['java', '-version'], capture_output=True, shell=True, check=True)
+            d = subprocess.run(['java', '-version'], capture_output=True, shell=False, check=True)
             return True
         except subprocess.CalledProcessError:
             return False
@@ -211,8 +215,27 @@ class Renamer:
                 self.logger.error(f"Error occurred when downloading apksigner: {e}")
         return path
 
-    @staticmethod
-    def replace_package_name(android_manifest_path):
+    def generate_key(self):
+        keystore_file = self.key_config.get("keytool", "file")
+        keystore_password = self.key_config.get("keytool", "password")
+        key_alias = self.key_config.get("keytool", "alias")
+        key_password = self.key_config.get("keytool", "password")
+
+        if not pathlib.Path("android.keystore").exists(): # Generate if not exists
+            self.logger.info("Generating new key")
+
+            cn = self.key_config.get("keytool", "cn")
+            distinguished_name = f"CN={cn},OU=IT,O={cn[::-1]},L=US,S=US,C=US"
+
+            # Generate the key pair and self-signed certificate
+            subprocess.run(
+                ["keytool", "-genkey", "-alias", key_alias, "-keyalg", "RSA", "-keysize", "2048", "-keystore",
+                 keystore_file, "-storepass", keystore_password, "-keypass", key_password, "-dname", distinguished_name,
+                 "-validity", "36500"])
+
+        return pathlib.Path(keystore_file), keystore_password, key_alias, key_password
+
+    def replace_package_name(self, android_manifest_path):
         # Parse the XML file
         tree = ET.parse(android_manifest_path)
         root = tree.getroot()
@@ -223,12 +246,15 @@ class Renamer:
         # Replace package name
         old_package_name = manifest.attrib['package']
 
-        random = randint(0, 999999)
+        prefix = self.key_config.get("picoInstaller", "prefix")
+
         try:
             app = old_package_name.split('.')[-1]
-            new_package_name = f"com.r{random}.{app}"
+            new_package_name = f"com.{prefix}.{app}"
         except IndexError:
-            new_package_name = f"com.r{random}"
+            new_package_name = f"com.{prefix}"
+
+        self.logger.info(f"New package name: {new_package_name}")
 
         with open(android_manifest_path, "r+") as f:
             content = f.read()
@@ -248,6 +274,8 @@ class Renamer:
         # Download APKSigner
         apksigner_path = self.download_apksigner()
 
+        keystore_file, keystore_password, keystore_alias, key_password = self.generate_key()
+
         # Extract APK
         subprocess.run(
             ['java', '-jar', str(apktool_path), 'd', '-f', '-o', str(self.temp_dir),
@@ -261,11 +289,13 @@ class Renamer:
         # Rebuild APK
         apk_path = pathlib.Path("renamed_app.apk").resolve()
         subprocess.run(['java', '-jar', str(apktool_path), 'b', '-o', str(apk_path), str(self.temp_dir)],
-                       check=True, shell=True)
+                       check=True, shell=False)
 
         # Sign APK
-        subprocess.run(['java', '-jar', str(apksigner_path), '-a', str(apk_path), '--overwrite'],
-                       check=True, shell=True)
+        subprocess.run(['java', '-jar', str(apksigner_path), '-a', str(apk_path), '--overwrite',
+                        '--allowResign', '--ks', keystore_file, '--ksAlias', keystore_alias,
+                        '--ksKeyPass', keystore_password, '--ksPass', keystore_password],
+                       check=True, shell=False)
 
         # Clean up temporary directory
         shutil.rmtree(self.temp_dir)

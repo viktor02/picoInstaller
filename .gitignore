@@ -5,3 +5,5 @@ build/
 */__pycache__/*
 *.jar
 *.apk*
+*.keystore
+*.ini
