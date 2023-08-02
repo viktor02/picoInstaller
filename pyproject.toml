@@ -26,6 +26,9 @@ dependencies = [
 [tool.setuptools]
 packages = ["picoInstaller"]
 
+[tool.setuptools.package-data]
+picoInstaller = ["*.ui", "*.png"]
+
 [metadata]
 content-type = "text/markdown"
 
