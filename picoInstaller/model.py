@@ -7,7 +7,7 @@ import urllib.request
 import urllib.error
 import xml.etree.ElementTree as ET
 
-from config import MyConfigParser
+from picoInstaller.config import MyConfigParser
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from adbutils import adb, AdbError
