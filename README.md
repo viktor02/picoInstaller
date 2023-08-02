@@ -5,11 +5,11 @@ Simple ADB installer, which can install APK or ZIP files with OBB cache
 
 ## From sources
 
-To install this app you need Python >3.6 up to 3.9 and install some requirements:
+To install this app you need Python >3.6 and install some requirements:
 1. `pip install .`
-2. Run `picoInstaller` in console
+2. Make sure you have adb installed and available in your PATH
+3. Run `picoInstaller` in console
 
-Warning: due to a bug in the adbutils library, installation on python>3.9 is not possible
 
 ## From releases
 
